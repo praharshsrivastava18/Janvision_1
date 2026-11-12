@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LegalOps-Lite Dashboard</title>
+<style>
+:root{--bg:#f8fafc;--panel:#fff;--border:#e2e8f0;--text:#0f172a;--muted:#64748b;}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#0b1220;--panel:#111a2b;--border:#1e293b;--text:#e2e8f0;--muted:#94a3b8;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+.wrap{max-width:1100px;margin:0 auto;padding:24px;}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
+h1{margin:0;font-size:1.5rem;} .sub{color:var(--muted);font-size:.85rem;margin-top:4px;max-width:500px;}
+.big-stat{text-align:center;min-width:140px;} .big-stat .v{font-size:2rem;font-weight:700;color:#2563eb;}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;}
+@media (max-width:800px){.grid-3{grid-template-columns:1fr;}}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;}
+.k{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:20px;}
+.panel h2{margin:0 0 14px;font-size:1.02rem;}
+.bar-row{display:grid;grid-template-columns:130px 1fr 36px;align-items:center;gap:10px;margin-bottom:10px;font-size:.85rem;}
+.bar-track{background:var(--border);border-radius:6px;height:10px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:6px;}
+table{width:100%;border-collapse:collapse;font-size:.85rem;}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
+th{color:var(--muted);font-weight:600;font-size:.72rem;text-transform:uppercase;}
+.badge{color:#fff;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:600;white-space:nowrap;}
+.mono{font-family:ui-monospace,Consolas,monospace;} .small{font-size:.78rem;color:var(--muted);}
+footer{text-align:center;color:var(--muted);font-size:.8rem;padding:20px 0;}
+</style></head>
+<body><div class="wrap">
+  <header>
+    <div><h1>LegalOps-Lite Dashboard</h1>
+    <div class="sub">A working mini-clone of an AI litigation-management dashboard &mdash; built to teach the pattern, not a product.</div></div>
+    <div class="card big-stat"><div class="k">Cases Tracked</div><div class="v">4</div></div>
+  </header>
+
+  <section class="grid-3">
+    <div class="panel"><h2>Case Status</h2>
+    <div class="bar-row">
+      <div class="bar-label">Open</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#2563eb"></div></div>
+      <div class="bar-value">3</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Reserved for Judgment</div>
+      <div class="bar-track"><div class="bar-fill" style="width:33%;background:#7c3aed"></div></div>
+      <div class="bar-value">1</div>
+    </div></div>
+    <div class="panel"><h2>Case Aging</h2>
+    <div class="bar-row">
+      <div class="bar-label">0-90 days</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#0891b2"></div></div>
+      <div class="bar-value">4</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">91-365 days</div>
+      <div class="bar-track"><div class="bar-fill" style="width:0%;background:#0891b2"></div></div>
+      <div class="bar-value">0</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">365+ days</div>
+      <div class="bar-track"><div class="bar-fill" style="width:0%;background:#0891b2"></div></div>
+      <div class="bar-value">0</div>
+    </div></div>
+    <div class="panel"><h2>Next Action On</h2>
+    <div class="bar-row">
+      <div class="bar-label">Petitioner</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#ea580c"></div></div>
+      <div class="bar-value">1</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Respondent</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#2563eb"></div></div>
+      <div class="bar-value">1</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Court</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#7c3aed"></div></div>
+      <div class="bar-value">1</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Unknown</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#64748b"></div></div>
+      <div class="bar-value">1</div>
+    </div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Legal Spend by Stage &mdash; Total &#8377;147,000</h2>
+    
+    <div class="bar-row">
+      <div class="bar-label">Filing</div>
+      <div class="bar-track"><div class="bar-fill" style="width:46%;background:#16a34a"></div></div>
+      <div class="bar-value">46000</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Hearing</div>
+      <div class="bar-track"><div class="bar-fill" style="width:100%;background:#16a34a"></div></div>
+      <div class="bar-value">101000</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Digital Case Workspace</h2>
+    <table><thead><tr><th>Case No.</th><th>Title</th><th>Court</th><th>Status</th><th>Next Action On</th><th>Latest Purpose (AI-extracted)</th></tr></thead>
+    <tbody><tr>
+          <td class="mono">CS/4521/2025</td>
+          <td>M/s Sharma Textiles Pvt Ltd vs Rajendra Kumar</td>
+          <td>Court No. 7</td>
+          <td><span class="badge" style="background:#2563eb">Open</span></td>
+          <td><span class="badge" style="background:#ea580c">Petitioner</span></td>
+          <td class="small">For Hearing - Petitioner to file rejoinder</td>
+        </tr><tr>
+          <td class="mono">CS/3390/2024</td>
+          <td>Global Logistics Ltd vs Metro Warehousing Co.</td>
+          <td>Court No. 3</td>
+          <td><span class="badge" style="background:#2563eb">Open</span></td>
+          <td><span class="badge" style="background:#2563eb">Respondent</span></td>
+          <td class="small">For Orders - Respondent to file reply within two weeks</td>
+        </tr><tr>
+          <td class="mono">ARB/112/2026</td>
+          <td>Northstar Fintech Pvt. Ltd. vs Anil Deshmukh &amp; Anr.</td>
+          <td>Court No. 7</td>
+          <td><span class="badge" style="background:#7c3aed">Reserved for Judgment</span></td>
+          <td><span class="badge" style="background:#7c3aed">Court</span></td>
+          <td class="small">Final Arguments - Reserved for Judgment</td>
+        </tr><tr>
+          <td class="mono">CS/9981/2023</td>
+          <td>Bright Future Manufacturing vs State Electricity Board</td>
+          <td>Court No. 1</td>
+          <td><span class="badge" style="background:#2563eb">Open</span></td>
+          <td><span class="badge" style="background:#64748b">Unknown</span></td>
+          <td class="small">For Hearing - Petitioner&#x27;s counsel absent, next date to be fixed</td>
+        </tr></tbody></table>
+  </section>
+
+  <footer>Generated by LegalOps-Lite &mdash; a teaching project, not a production legal product.</footer>
+</div></body></html>
