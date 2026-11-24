@@ -1,0 +1,650 @@
+<title>Exfiltration Sentinel</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: operations console. Controls and a stat strip on top, sessions beside the score chart, query feed beside the forensic ledger. */
+:root{
+  --bg:#eef1f5; --surface:#ffffff; --raised:#f5f7fa; --ink:#14202e; --muted:#566678;
+  --line:#dbe2ea; --line-strong:#aebbc9; --accent:#2457d6; --accent-ink:#ffffff;
+  --ok:#177a50; --ok-bg:#dff2e8; --warn:#8f5a06; --warn-bg:#fbedd0; --crit:#b72b27; --crit-bg:#fbe2e0;
+  --sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c1219; --surface:#131b25; --raised:#192332; --ink:#e5ecf4; --muted:#8fa0b3;
+  --line:#243141; --line-strong:#3d4f65; --accent:#7aa0ff; --accent-ink:#0c1219;
+  --ok:#46c78e; --ok-bg:#12372a; --warn:#e6ab43; --warn-bg:#3a2d12; --crit:#ff6f67; --crit-bg:#401b1a; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0c1219; --surface:#131b25; --raised:#192332; --ink:#e5ecf4; --muted:#8fa0b3;
+  --line:#243141; --line-strong:#3d4f65; --accent:#7aa0ff; --accent-ink:#0c1219;
+  --ok:#46c78e; --ok-bg:#12372a; --warn:#e6ab43; --warn-bg:#3a2d12; --crit:#ff6f67; --crit-bg:#401b1a; color-scheme:dark;}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);
+  padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1320px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font:600 20px/1.2 var(--sans);margin:0;letter-spacing:-.01em}
+h2{font:600 12px/1 var(--sans);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
+p{margin:0}
+.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}
+.brand small{display:block;color:var(--muted);margin-top:4px}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.clock{font:500 13px var(--mono);color:var(--muted);padding:6px 10px;border:1px solid var(--line);border-radius:5px;background:var(--surface);font-variant-numeric:tabular-nums}
+.btn{font:500 13px var(--sans);padding:6px 12px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:5px;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--raised)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover:not(:disabled){background:var(--accent);filter:brightness(1.08)}
+.btn.danger{color:var(--crit);border-color:var(--crit)}
+.btn.sm{padding:3px 9px;font-size:12px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:5px;overflow:hidden;background:var(--surface)}
+.seg button{font:500 12px var(--mono);padding:6px 10px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+
+.tune{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:flex-end;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+.tune label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);min-width:200px;flex:1 1 200px}
+.tune label b{color:var(--ink);font:500 12px var(--mono)}
+.tune input[type=range]{width:100%;accent-color:var(--accent)}
+.tune .hint{flex:2 1 300px;font-size:12px;color:var(--muted);line-height:1.5}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));background:var(--surface);border:1px solid var(--line);border-radius:6px}
+.stat{padding:12px 16px;border-left:1px solid var(--line);min-width:0}
+.stat:first-child{border-left:0}
+.stat span{display:block;font-size:12px;color:var(--muted)}
+.stat b{display:block;font:500 22px/1.3 var(--mono);font-variant-numeric:tabular-nums}
+.stat b.crit{color:var(--crit)}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:16px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;min-width:0}
+.ph{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.ph .meta{font-size:12px;color:var(--muted)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th{font:600 11px var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.num{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+th.num{text-align:right}
+td small{display:block;color:var(--muted);font-size:11px}
+.mono{font-family:var(--mono);font-size:12px}
+tr.sel{background:var(--raised);box-shadow:inset 3px 0 0 var(--accent)}
+tbody.pick tr{cursor:pointer}
+.op b{font:500 13px var(--mono)}
+.op .atk{color:var(--crit)}
+
+.pill{display:inline-block;font:600 11px/1 var(--mono);letter-spacing:.04em;padding:3px 7px;border-radius:3px;text-transform:uppercase}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.crit{background:var(--crit-bg);color:var(--crit)}
+.pill.mute{background:var(--raised);color:var(--muted);border:1px solid var(--line)}
+
+.meterwrap{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.meter{position:relative;width:120px;height:8px;background:var(--raised);border:1px solid var(--line);border-radius:2px}
+.meter i{position:absolute;left:0;top:0;bottom:0;background:var(--ok);transition:width .2s}
+.meter i.warn{background:var(--warn)} .meter i.crit{background:var(--crit)}
+.meter u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--line-strong)}
+
+.chartbox{padding:8px 10px 12px}
+svg.chart{display:block;width:100%;height:auto}
+.chart text{fill:var(--muted);font:11px var(--mono)}
+.chart .grid-l{stroke:var(--line);stroke-width:1}
+.chart .ln{fill:none;stroke:var(--line-strong);stroke-width:1.25;stroke-linejoin:round}
+.chart .ln.hot{stroke:var(--crit);stroke-width:1.75}
+.chart .ln.sel{stroke:var(--accent);stroke-width:2}
+.chart .th-t{stroke:var(--warn);stroke-dasharray:4 4}
+.chart .th-f{stroke:var(--crit);stroke-dasharray:4 4}
+.chart .dot{fill:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:0 4px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:0;border-top:2px solid;margin-right:6px;vertical-align:middle}
+
+.chk{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.sql{max-width:300px;overflow:hidden;text-overflow:ellipsis}
+.feedscroll{max-height:440px;overflow:auto}
+#ledger td{padding:5px 10px}
+.ledgerbody{padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font:12px var(--mono);overflow-wrap:anywhere}
+.btnrow{display:flex;flex-wrap:wrap;gap:6px}
+.sub{font:600 11px var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.msg{padding:9px 11px;border-radius:5px;font-size:12.5px;border:1px solid var(--line);background:var(--raised)}
+.msg.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
+.msg.crit{border-color:var(--crit);color:var(--crit);background:var(--crit-bg)}
+.proof{font:12px/1.55 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.proof b{color:var(--ink);font-weight:500}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px 28px;color:var(--muted);font-size:12.5px;padding-top:4px}
+.notes b{display:block;color:var(--ink);font-weight:600;margin-bottom:4px}
+
+@media (max-width:960px){.grid{grid-template-columns:minmax(0,1fr)}.stat{border-left:0;border-top:1px solid var(--line)}.stat:first-child{border-top:0}}
+@media (prefers-reduced-motion:reduce){.meter i{transition:none}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Exfiltration Sentinel</h1>
+      <small>Zero-trust proxy in front of a records database. Synthetic data only, not real NCIC.</small>
+    </div>
+    <div class="ctl">
+      <span class="clock" id="clock" title="Simulated clock">--:--:--</span>
+      <button class="btn primary" id="run">Pause</button>
+      <div class="seg" role="group" aria-label="Simulation speed" id="speed">
+        <button data-s="1" aria-pressed="false">1×</button><button data-s="4" aria-pressed="true">4×</button><button data-s="16" aria-pressed="false">16×</button>
+      </div>
+      <button class="btn" id="night">Jump to 03:00</button>
+      <button class="btn" id="reset">Reset</button>
+    </div>
+  </header>
+
+  <section class="tune" aria-label="Thresholds">
+    <label><span>Throttle at <b id="thrv">1.25</b></span>
+      <input type="range" id="thr" min="0.8" max="2.5" step="0.05" value="1.25"></label>
+    <label><span>Freeze at <b id="frzv">1.80</b></span>
+      <input type="range" id="frz" min="1" max="3.5" step="0.05" value="1.8"></label>
+    <p class="hint">Score is how far a session's last hour sits from normal behaviour, divided by the 99.9th percentile seen in training. 1.0 is the edge of what normal looks like. Throttled sessions get at most 25 rows per query. Frozen sessions are cut off.</p>
+  </section>
+
+  <section class="stats" id="stats" aria-label="Totals"></section>
+
+  <main class="grid">
+    <section class="panel">
+      <div class="ph"><h2>Operator sessions</h2><span class="meta">Rolling one-hour window. Click a row to chart it.</span></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Operator</th><th class="num">Queries</th><th class="num">Rows</th><th class="num">Exports</th><th class="num">Score</th><th>State</th><th></th></tr></thead>
+        <tbody id="sessions" class="pick"></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Score over time</h2><span class="meta" id="chartmeta">Last 3 simulated hours</span></div>
+      <div class="chartbox">
+        <svg class="chart" id="chart" viewBox="0 0 560 330" role="img" aria-label="Anomaly score per session over the last 3 simulated hours"></svg>
+        <div class="legend"><span><i style="color:var(--accent)"></i>Selected</span><span><i style="color:var(--crit)"></i>Under attack</span><span><i style="color:var(--line-strong)"></i>Other sessions</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Query feed</h2>
+        <label class="chk"><input type="checkbox" id="flagged"> Flagged only</label></div>
+      <div class="feedscroll scroll"><table>
+        <thead><tr><th>Time</th><th>Operator</th><th>Statement</th><th>Source</th><th class="num">Rows</th><th class="num">Score</th><th>Action</th></tr></thead>
+        <tbody id="feed"></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>Forensic ledger</h2><span class="pill ok" id="lstatus">Intact</span></div>
+      <div class="ledgerbody">
+        <dl class="kv" id="lkv"></dl>
+        <div class="btnrow">
+          <button class="btn sm" id="verify">Verify log</button>
+          <button class="btn sm" id="cp">Sign checkpoint</button>
+          <button class="btn sm" id="prove">Prove selected entry</button>
+        </div>
+        <div class="msg" id="lmsg" role="status" aria-live="polite">Click an entry below, then try to cover your tracks.</div>
+        <div class="proof" id="proof" hidden></div>
+        <div>
+          <div class="sub" style="margin-bottom:6px">Attacker with database access</div>
+          <div class="btnrow">
+            <button class="btn sm danger" id="t-edit">Edit entry</button>
+            <button class="btn sm danger" id="t-del">Delete entry</button>
+            <button class="btn sm danger" id="t-re">Edit and re-hash chain</button>
+            <button class="btn sm" id="t-undo" disabled>Restore</button>
+          </div>
+        </div>
+      </div>
+      <div class="scroll"><table>
+        <thead><tr><th class="num">#</th><th>Event</th><th>Entry hash</th><th>Prev</th></tr></thead>
+        <tbody id="ledger" class="pick"></tbody>
+      </table></div>
+    </section>
+  </main>
+
+  <section class="notes">
+    <p><b>What is simulated</b>Eight agency operators work day shifts from their home subnets. Any row's "Compromise" button gives that credential to an attacker on 203.0.113.0/24 who starts quiet and ramps up across all four record files.</p>
+    <p><b>How scoring works here</b>This page uses a distance model fitted to 3,000 simulated normal windows. The notebook version uses an Isolation Forest and an autoencoder with the same features: volume, rows, exports, off-hours use, subnet drift, table breadth.</p>
+    <p><b>What the ledger proves</b>Every query is hash-chained and added to a Merkle tree. Signed checkpoints are kept outside the database, so a rewritten history no longer matches. The last entries after the newest checkpoint can still be cut off unnoticed, which is why checkpoints are frequent.</p>
+  </section>
+</div>
+
+<script>
+/* ---------- hashing ---------- */
+const K256 = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+const ror = (x, n) => (x >>> n) | (x << (32 - n));
+function sha256(bytes) {
+  const l = bytes.length, padLen = ((l + 9 + 63) >> 6) << 6;
+  const buf = new Uint8Array(padLen); buf.set(bytes); buf[l] = 0x80;
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(padLen - 8, Math.floor(l / 0x20000000)); dv.setUint32(padLen - 4, (l << 3) >>> 0);
+  let h = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const w = new Uint32Array(64);
+  for (let o = 0; o < padLen; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = ror(w[i-15],7) ^ ror(w[i-15],18) ^ (w[i-15] >>> 3);
+      const s1 = ror(w[i-2],17) ^ ror(w[i-2],19) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) | 0;
+    }
+    let [a,b,c,d,e,f,g,hh] = h;
+    for (let i = 0; i < 64; i++) {
+      const S1 = ror(e,6) ^ ror(e,11) ^ ror(e,25), ch = (e & f) ^ (~e & g);
+      const t1 = (hh + S1 + ch + K256[i] + w[i]) | 0;
+      const S0 = ror(a,2) ^ ror(a,13) ^ ror(a,22), maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    h = [(h[0]+a)|0,(h[1]+b)|0,(h[2]+c)|0,(h[3]+d)|0,(h[4]+e)|0,(h[5]+f)|0,(h[6]+g)|0,(h[7]+hh)|0];
+  }
+  const out = new Uint8Array(32), odv = new DataView(out.buffer);
+  h.forEach((v, i) => odv.setUint32(i * 4, v >>> 0));
+  return out;
+}
+const enc = new TextEncoder();
+const toHex = u8 => Array.from(u8, b => b.toString(16).padStart(2, '0')).join('');
+const fromHex = s => Uint8Array.from(s.match(/../g), x => parseInt(x, 16));
+const cat = (...parts) => { const n = parts.reduce((a, p) => a + p.length, 0), o = new Uint8Array(n); let k = 0; for (const p of parts) { o.set(p, k); k += p.length; } return o; };
+function hmac256(key, msg) {
+  let k = key.length > 64 ? sha256(key) : key; const kp = new Uint8Array(64); kp.set(k);
+  const ip = kp.map(b => b ^ 0x36), op = kp.map(b => b ^ 0x5c);
+  return sha256(cat(op, sha256(cat(ip, msg))));
+}
+
+/* ---------- Merkle tree (RFC 6962 style, domain-separated) ---------- */
+const LEAF = Uint8Array.of(0), NODE = Uint8Array.of(1);
+const leafHash = hex => sha256(cat(LEAF, fromHex(hex)));
+const nodeHash = (l, r) => sha256(cat(NODE, l, r));
+const splitPoint = n => 1 << (31 - Math.clz32(n - 1));
+function makeTree(leaves) {
+  const memo = new Map();
+  const mth = (lo, hi) => {
+    const n = hi - lo;
+    if (n === 0) return sha256(new Uint8Array(0));
+    if (n === 1) return leaves[lo];
+    const complete = (n & (n - 1)) === 0 && lo % n === 0, key = lo + ':' + hi;
+    if (complete && memo.has(key)) return memo.get(key);
+    const k = splitPoint(n), r = nodeHash(mth(lo, lo + k), mth(lo + k, hi));
+    if (complete) memo.set(key, r);
+    return r;
+  };
+  const path = (m, lo, hi) => {
+    if (hi - lo === 1) return [];
+    const k = splitPoint(hi - lo);
+    return m - lo < k ? [...path(m, lo, lo + k), ['R', toHex(mth(lo + k, hi))]]
+                      : [...path(m, lo + k, hi), ['L', toHex(mth(lo, lo + k))]];
+  };
+  return { root: (n = leaves.length) => mth(0, n), proof: (m, n = leaves.length) => path(m, 0, n) };
+}
+function verifyProof(leaf, proof, root) {
+  let h = leaf;
+  for (const [side, sib] of proof) h = side === 'L' ? nodeHash(fromHex(sib), h) : nodeHash(h, fromHex(sib));
+  return toHex(h) === toHex(root);
+}
+
+/* ---------- forensic ledger ---------- */
+class Ledger {
+  constructor(key) { this.key = enc.encode(key); this.entries = []; this.witness = []; this.reset(); }
+  reset() { this.entries = []; this.witness = []; this.leaves = []; this.tree = makeTree(this.leaves); }
+  static body(e) { return enc.encode(JSON.stringify({ seq: e.seq, event: e.event, prev: e.prev })); }
+  append(event) {
+    const prev = this.entries.length ? this.entries[this.entries.length - 1].hash : '0'.repeat(64);
+    const e = { seq: this.entries.length, event, prev };
+    e.hash = toHex(sha256(Ledger.body(e)));
+    this.entries.push(e); this.leaves.push(leafHash(e.hash));
+    return e;
+  }
+  rootHex(n) { return toHex(this.tree.root(n)); }
+  checkpoint() {
+    const size = this.entries.length, root = this.tree.root(size);
+    const sig = toHex(hmac256(this.key, cat(new Uint8Array(new BigUint64Array([BigInt(size)]).buffer).reverse(), root)));
+    const cp = { size, root: toHex(root), sig }; this.witness.push(cp); return cp;   // witness = external WORM copy
+  }
+  rebuild() { this.leaves = this.entries.map(e => leafHash(e.hash)); this.tree = makeTree(this.leaves); }
+  verify() {
+    let prev = '0'.repeat(64);
+    for (let i = 0; i < this.entries.length; i++) {
+      const e = this.entries[i];
+      if (e.seq !== i || e.prev !== prev) return { ok: false, reason: `Chain broken at entry ${i}: link to the previous entry does not match.` };
+      if (toHex(sha256(Ledger.body(e))) !== e.hash) return { ok: false, reason: `Entry ${i} was modified: its contents no longer match its hash.` };
+      prev = e.hash;
+    }
+    const tree = makeTree(this.entries.map(e => leafHash(e.hash)));
+    for (const [k, cp] of this.witness.entries()) {
+      if (cp.size > this.entries.length) return { ok: false, reason: `Log truncated: checkpoint ${k + 1} covers ${cp.size} entries but only ${this.entries.length} remain.` };
+      if (toHex(tree.root(cp.size)) !== cp.root) return { ok: false, reason: `Merkle root differs from witnessed checkpoint ${k + 1} (${cp.size} entries). The history was rewritten.` };
+    }
+    return { ok: true, reason: `${this.entries.length} entries, ${this.witness.length} checkpoints, all consistent.` };
+  }
+}
+
+/* ---------- simulation + anomaly engine ---------- */
+function rngFor(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const TABLES = ['wanted_persons', 'vehicles', 'missing_persons', 'protection_orders'];
+const FLOOR = [0.3, 0.35, 0.5, 0.5, 0.5, 0.7, 0.35];
+const WINDOW = 3600, STEP = 20, THROTTLE_CAP = 25;
+
+function featurize(q, rows, exp, off, drift, tables) {
+  return [Math.log1p(q), Math.log1p(rows), Math.log1p(exp), off, drift, tables, Math.log1p(rows / Math.max(q, 1))];
+}
+
+class World {
+  constructor(seed, startHour, engine, hooks = {}) {
+    this.rnd = rngFor(seed); this.t = startHour * 3600; this.engine = engine; this.hooks = hooks;
+    const subs = [12, 14, 21, 33, 37, 41, 52, 58];
+    const ids = ['tx.dps', 'ca.lapd', 'ny.nypd', 'fl.fdle', 'il.isp', 'wa.wsp', 'az.dps', 'co.cbi'];
+    this.sessions = ids.map((id, i) => ({
+      id: id + '.' + String(100 + Math.floor(this.rnd() * 899)), agency: id, home: '10.' + subs[i],
+      shift: [7 + (i % 3), 16 + (i % 3)], rate: 6 + Math.floor(this.rnd() * 11), mu: 2.1 + this.rnd() * 0.5,
+      usual: [TABLES[i % 4], TABLES[(i + 1) % 4]], events: [], hist: [], frozen: false, lastAction: 'ALLOW', lastActionT: -1e9,
+      score: 0, attack: null,
+    }));
+    this.stats = { queries: 0, served: 0, withheld: 0, throttled: 0, denied: 0, frozen: 0 };
+  }
+  hour() { return (this.t / 3600) % 24; }
+  poisson01(p) { return this.rnd() < p; }
+  logn(mu, s) { const u = this.rnd() || 1e-9, v = this.rnd(); return Math.exp(mu + s * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)); }
+  features(s) {
+    const cut = this.t - WINDOW; while (s.events.length && s.events[0].t < cut) s.events.shift();
+    const ev = s.events; if (!ev.length) return null;
+    let rows = 0, ex = 0, off = 0, drift = 0; const tb = new Set();
+    for (const e of ev) { rows += e.req; ex += e.exp; off += e.off; drift |= e.drift; tb.add(e.table); }
+    return featurize(ev.length, rows, ex, off / ev.length, drift, tb.size);
+  }
+  issue(s, spec, log) {
+    const h = this.hour(), off = (h >= s.shift[0] && h < s.shift[1]) ? 0 : 1;
+    const ev = { t: this.t, req: spec.req, exp: spec.exp ? 1 : 0, off, drift: spec.src !== s.home ? 1 : 0, table: spec.table };
+    if (s.frozen) {
+      this.stats.denied++;
+      if (log) this.hooks.onEvent && this.hooks.onEvent(s, { ...spec, ret: 0, action: 'DENIED', score: s.score, off });
+      return;
+    }
+    s.events.push(ev);
+    const f = this.features(s), score = this.engine.score(f);
+    let action = 'ALLOW', ret = spec.req;
+    if (score >= this.engine.freezeAt) { action = 'FREEZE'; ret = 0; s.frozen = true; this.stats.frozen++; }
+    else if (score >= this.engine.throttleAt) { action = 'THROTTLE'; ret = Math.min(ret, THROTTLE_CAP); this.stats.throttled++; }
+    s.score = score; s.lastAction = action; if (action !== 'ALLOW') s.lastActionT = this.t;
+    s.hist.push([this.t, score]); if (s.hist.length > 400) s.hist.shift();
+    this.stats.queries++; this.stats.served += ret; this.stats.withheld += spec.req - ret;
+    if (log) this.hooks.onEvent && this.hooks.onEvent(s, { ...spec, ret, action, score, off });
+    return score;
+  }
+  step(log = true) {
+    this.t += STEP;
+    const h = this.hour();
+    for (const s of this.sessions) {
+      const inShift = h >= s.shift[0] && h < s.shift[1];
+      const p = (inShift ? s.rate : 0.4) / (3600 / STEP);
+      if (this.poisson01(p)) {
+        const req = Math.max(1, Math.round(this.logn(s.mu, 0.7)));
+        const table = s.usual[this.rnd() < 0.7 ? 0 : 1];
+        const exp = this.rnd() < 0.01;
+        const drift = this.rnd() < 0.004 ? '10.99' : s.home;
+        this.issue(s, { req, table, exp, src: drift, sql: exp ? `EXPORT ${table} WHERE case_ref = ?` : `SELECT * FROM ${table} WHERE ${['ssn_hash', 'plate', 'case_ref'][Math.floor(this.rnd() * 3)]} = ?` }, log);
+      }
+      if (s.attack) {
+        const a = s.attack;
+        if (this.poisson01(s.frozen ? 0.08 : 0.55)) {
+          const i = a.n++, lim = Math.min(800, 15 + i * 12), exp = i > 8 && i % 3 === 0;
+          const table = TABLES[i % 4];
+          this.issue(s, { req: lim, table, exp, src: '203.0.113.' + (7 + (i % 3)), sql: exp ? `EXPORT ${table} WHERE id >= ${i * 50}` : `SELECT * FROM ${table} WHERE id >= ${i * 50} LIMIT ${lim}`, attacker: true }, log);
+        }
+      }
+    }
+  }
+}
+
+class Engine {
+  constructor() { this.throttleX = 1.25; this.freezeX = 1.8; this.mean = null; }
+  get throttleAt() { return this.throttleX; } get freezeAt() { return this.freezeX; }
+  dist(f) { let s = 0; for (let i = 0; i < f.length; i++) { const z = Math.max(0, (f[i] - this.mean[i]) / this.std[i]); s += z * z; } return Math.sqrt(s / f.length); }
+  score(f) { return this.dist(f) / this.ref; }
+  static train(hours = 96, seed = 7) {
+    const eng = new Engine(); const feats = [];
+    const w = new World(seed, 7, { score: () => 0, throttleAt: 1e9, freezeAt: 1e9 });
+    const origFeat = w.features.bind(w);
+    w.features = s => { const f = origFeat(s); if (f) feats.push(f); return f; };
+    for (let i = 0; i < hours * 3600 / STEP; i++) w.step(false);
+    const n = feats.length, d = feats[0].length; eng.mean = new Array(d).fill(0); eng.std = new Array(d).fill(0);
+    feats.forEach(f => f.forEach((v, j) => eng.mean[j] += v / n));
+    feats.forEach(f => f.forEach((v, j) => eng.std[j] += (v - eng.mean[j]) ** 2 / n));
+    eng.std = eng.std.map((v, j) => Math.max(Math.sqrt(v), FLOOR[j]));
+    eng.ref = 1; const ds = feats.map(f => eng.dist(f)).sort((a, b) => a - b);
+    eng.ref = ds[Math.floor(n * 0.999)] || 1; eng.trainN = n; eng.trainP50 = ds[Math.floor(n / 2)] / eng.ref;
+    return eng;
+  }
+}
+if (typeof module !== 'undefined') module.exports = { sha256, hmac256, toHex, Ledger, makeTree, verifyProof, leafHash, World, Engine, STEP, TABLES, enc };
+
+/* ---------- UI ---------- */
+const $ = s => document.querySelector(s);
+const nf = n => Math.round(n).toLocaleString('en-US');
+const pad = n => String(n).padStart(2, '0');
+const fmtT = t => { const s = Math.floor(t % 86400); return pad(s / 3600 | 0) + ':' + pad((s % 3600) / 60 | 0) + ':' + pad(s % 60); };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pillFor = a => ({ ALLOW: 'ok', THROTTLE: 'warn', FREEZE: 'crit', DENIED: 'mute' }[a] || 'mute');
+const KEY = 'sentinel-demo-key';
+
+let engine = Engine.train();
+let world, ledger, feed, running = true, speed = 4, sel, target = null, tampered = null, lastVerify = { ok: true }, lastCp = 0, timer;
+let rowEls = {};
+
+function onEvent(s, e) {
+  feed.unshift({ t: world.t, op: s.id, ...e });
+  if (feed.length > 120) feed.pop();
+  ledger.append({
+    t: Math.round(world.t), op: s.id, verb: e.sql.startsWith('EXPORT') ? 'EXPORT' : (e.action === 'DENIED' ? 'DENIED' : 'SELECT'),
+    table: e.table, rows: e.ret, src: e.src, score: +e.score.toFixed(2), action: e.action,
+  });
+  if (ledger.entries.length - lastCp >= 40) { ledger.checkpoint(); lastCp = ledger.entries.length; }
+}
+
+function init() {
+  engine.throttleX = +$('#thr').value; engine.freezeX = +$('#frz').value;
+  ledger = new Ledger(KEY); feed = []; tampered = null; target = null; lastCp = 0; lastVerify = { ok: true };
+  world = new World(2026, 9.5, engine, { onEvent });
+  for (let i = 0; i < 180; i++) world.step(false);
+  world.stats = { queries: 0, served: 0, withheld: 0, throttled: 0, denied: 0, frozen: 0 };
+  for (let i = 0; i < 120; i++) world.step(true);
+  ledger.checkpoint(); lastCp = ledger.entries.length;
+  sel = world.sessions[0].id;
+  buildSessions(); render();
+  $('#lmsg').className = 'msg'; $('#lmsg').textContent = 'Click an entry below, then try to cover your tracks.';
+  $('#proof').hidden = true; $('#t-undo').disabled = true;
+}
+
+/* sessions table is built once and updated in place so buttons stay clickable */
+function buildSessions() {
+  rowEls = {};
+  $('#sessions').innerHTML = world.sessions.map(s => `<tr data-id="${s.id}">
+    <td class="op"><b>${s.id}</b><small>${s.home}.x.x · shift ${pad(s.shift[0])}–${pad(s.shift[1])}h <span class="atk" data-f="atk"></span></small></td>
+    <td class="num" data-f="q"></td><td class="num" data-f="rows"></td><td class="num" data-f="exp"></td>
+    <td><div class="meterwrap"><div class="meter"><i data-f="bar"></i><u data-f="tt"></u><u data-f="tf"></u></div><span class="num" style="min-width:36px" data-f="score"></span></div></td>
+    <td><span class="pill" data-f="state"></span></td>
+    <td><button class="btn sm" data-f="act"></button></td></tr>`).join('');
+  document.querySelectorAll('#sessions tr').forEach(tr => {
+    const f = {}; tr.querySelectorAll('[data-f]').forEach(el => f[el.dataset.f] = el); f.tr = tr; rowEls[tr.dataset.id] = f;
+  });
+}
+$('#sessions').addEventListener('pointerdown', e => {
+  const btn = e.target.closest('button[data-f="act"]');
+  const tr = e.target.closest('tr'); if (!tr) return;
+  const s = world.sessions.find(x => x.id === tr.dataset.id);
+  if (btn) {
+    if (s.frozen) { s.frozen = false; s.attack = null; s.events = []; s.lastAction = 'ALLOW'; s.score = 0; }
+    else if (!s.attack) s.attack = { n: 0 };
+  }
+  sel = s.id; render();
+});
+
+/* ---------- rendering ---------- */
+function render() {
+  $('#clock').textContent = 'Sim ' + fmtT(world.t);
+  const frozenN = world.sessions.filter(s => s.frozen).length;
+  $('#stats').innerHTML = [
+    ['Queries inspected', nf(world.stats.queries)], ['Rows served', nf(world.stats.served)],
+    ['Rows withheld', nf(world.stats.withheld), world.stats.withheld > 0], ['Queries throttled', nf(world.stats.throttled)],
+    ['Sessions frozen now', frozenN, frozenN > 0], ['Ledger entries', nf(ledger.entries.length)],
+  ].map(([l, v, c]) => `<div class="stat"><span>${l}</span><b class="${c ? 'crit' : ''}">${v}</b></div>`).join('');
+  renderSessions(); renderChart(); renderFeed(); renderLedger();
+}
+
+function renderSessions() {
+  const max = engine.freezeX * 1.25, cut = world.t - 3600;
+  for (const s of world.sessions) {
+    const f = rowEls[s.id]; if (!f) continue;
+    let q = 0, rows = 0, ex = 0;
+    for (const e of s.events) if (e.t >= cut) { q++; rows += e.req; ex += e.exp; }
+    f.q.textContent = q; f.rows.textContent = nf(rows); f.exp.textContent = ex;
+    const sc = s.frozen || s.events.length ? s.score : 0;
+    f.score.textContent = sc.toFixed(2);
+    f.bar.style.width = Math.min(100, sc / max * 100) + '%';
+    f.bar.className = sc >= engine.freezeX ? 'crit' : sc >= engine.throttleX ? 'warn' : '';
+    f.tt.style.left = (engine.throttleX / max * 100) + '%'; f.tf.style.left = (engine.freezeX / max * 100) + '%';
+    const throttled = !s.frozen && s.lastAction === 'THROTTLE' && world.t - s.lastActionT < 120;
+    const st = s.frozen ? ['Frozen', 'crit'] : throttled ? ['Throttled', 'warn'] : ['Normal', 'ok'];
+    f.state.textContent = st[0]; f.state.className = 'pill ' + st[1];
+    f.atk.textContent = s.attack ? (s.frozen ? '· attacker locked out' : '· stolen credential in use') : '';
+    f.act.textContent = s.frozen ? 'Restore' : s.attack ? 'Attack running' : 'Compromise';
+    f.act.disabled = !s.frozen && !!s.attack; f.act.className = 'btn sm' + (!s.frozen && !s.attack ? ' danger' : '');
+    f.tr.classList.toggle('sel', s.id === sel);
+  }
+}
+
+function renderChart() {
+  const W = 560, H = 330, L = 30, R = 78, T = 10, B = 24, span = 10800, yMax = 3.2;
+  const x = t => L + (t - (world.t - span)) / span * (W - L - R), y = v => T + (1 - Math.min(v, yMax) / yMax) * (H - T - B);
+  let g = '';
+  for (const v of [0, 1, 2, 3]) g += `<line class="grid-l" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  [['-3h', 0], ['-2h', 1 / 3], ['-1h', 2 / 3], ['now', 1]].forEach(([l, f]) => g += `<text x="${L + f * (W - L - R)}" y="${H - 6}" text-anchor="${f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}">${l}</text>`);
+  g += `<line class="th-t" x1="${L}" x2="${W - R}" y1="${y(engine.throttleX)}" y2="${y(engine.throttleX)}"/><text x="${W - R + 6}" y="${y(engine.throttleX) + 4}">throttle</text>`;
+  g += `<line class="th-f" x1="${L}" x2="${W - R}" y1="${y(engine.freezeX)}" y2="${y(engine.freezeX)}"/><text x="${W - R + 6}" y="${y(engine.freezeX) + 4}">freeze</text>`;
+  const line = (s, cls) => {
+    const pts = s.hist.filter(p => p[0] >= world.t - span); if (pts.length < 2) return '';
+    return `<polyline class="ln ${cls}" points="${pts.map(p => x(p[0]).toFixed(1) + ',' + y(p[1]).toFixed(1)).join(' ')}"/>`;
+  };
+  const sess = world.sessions;
+  g += sess.filter(s => s.id !== sel && !s.attack).map(s => line(s, '')).join('');
+  g += sess.filter(s => s.id !== sel && s.attack).map(s => line(s, 'hot')).join('');
+  const cur = sess.find(s => s.id === sel);
+  if (cur) {
+    g += line(cur, cur.attack ? 'hot' : 'sel');
+    const last = cur.hist[cur.hist.length - 1];
+    if (last && last[0] >= world.t - span) g += `<circle class="dot" cx="${x(last[0])}" cy="${y(last[1])}" r="3.5" style="fill:${cur.attack ? 'var(--crit)' : 'var(--accent)'}"/>`;
+  }
+  $('#chart').innerHTML = g;
+  $('#chartmeta').textContent = cur ? 'Highlighted: ' + cur.id : 'Last 3 simulated hours';
+}
+
+let lastFeedHtml = '', lastLedgerHtml = '';
+function renderFeed() {
+  const only = $('#flagged').checked;
+  const rows = feed.filter(r => !only || r.action !== 'ALLOW').slice(0, 40);
+  const html = rows.map(r => `<tr><td class="mono">${fmtT(r.t)}</td><td class="mono">${r.op}</td><td class="mono sql" title="${esc(r.sql)}">${esc(r.sql)}</td>
+    <td class="mono" style="${r.attacker ? 'color:var(--crit)' : ''}">${r.src}</td>
+    <td class="num">${r.ret === r.req ? nf(r.req) : nf(r.ret) + ' / ' + nf(r.req)}</td><td class="num">${r.score.toFixed(2)}</td>
+    <td><span class="pill ${pillFor(r.action)}">${r.action}</span></td></tr>`).join('') || '<tr><td colspan="7" style="color:var(--muted)">No flagged queries yet. Compromise an operator to see one.</td></tr>';
+  if (html !== lastFeedHtml) { $('#feed').innerHTML = html; lastFeedHtml = html; }
+}
+
+function defaultTarget() {
+  for (let i = ledger.entries.length - 1; i >= 0; i--) if (['FREEZE', 'THROTTLE'].includes(ledger.entries[i].event.action)) return i;
+  return Math.max(0, ledger.entries.length - 1);
+}
+const tgt = () => Math.min(target ?? defaultTarget(), ledger.entries.length - 1);
+
+function renderLedger() {
+  const n = ledger.entries.length, cp = ledger.witness[ledger.witness.length - 1];
+  const st = $('#lstatus');
+  st.textContent = lastVerify.ok ? 'Intact' : 'Tampered'; st.className = 'pill ' + (lastVerify.ok ? 'ok' : 'crit');
+  $('#lkv').innerHTML = `<dt>Entries</dt><dd>${nf(n)}</dd><dt>Merkle root</dt><dd>${tampered ? 'recomputed from edited log' : ledger.rootHex().slice(0, 32) + '…'}</dd>
+    <dt>Witnessed</dt><dd>${ledger.witness.length} checkpoints${cp ? ', latest covers ' + nf(cp.size) : ''}</dd>
+    <dt>Target</dt><dd>${n ? '#' + tgt() : 'none'}</dd>`;
+  const t = tgt(), from = Math.max(0, n - 8);
+  const rows = []; for (let i = n - 1; i >= from; i--) rows.push(ledger.entries[i]);
+  if (t < from && n) rows.push(ledger.entries[t]);
+  const html = rows.map(e => `<tr data-seq="${e.seq}" class="${e.seq === t ? 'sel' : ''}"><td class="num">${e.seq}</td>
+    <td><span class="pill ${pillFor(e.event.action)}">${e.event.action}</span> <span class="mono" style="color:var(--muted)">${esc(e.event.op)}</span></td>
+    <td class="mono">${e.hash.slice(0, 10)}</td><td class="mono" style="color:var(--muted)">${e.prev.slice(0, 6)}</td></tr>`).join('');
+  if (html !== lastLedgerHtml) { $('#ledger').innerHTML = html; lastLedgerHtml = html; }
+}
+$('#ledger').addEventListener('pointerdown', e => {
+  const tr = e.target.closest('tr[data-seq]'); if (!tr) return;
+  target = +tr.dataset.seq; $('#proof').hidden = true; lastLedgerHtml = ''; renderLedger();
+});
+
+/* ---------- ledger actions ---------- */
+function say(kind, text) { const m = $('#lmsg'); m.className = 'msg ' + kind; m.textContent = text; }
+function doVerify() {
+  lastVerify = ledger.verify();
+  say(lastVerify.ok ? 'ok' : 'crit', (lastVerify.ok ? 'Verified. ' : 'Tampering detected. ') + lastVerify.reason);
+  renderLedger(); return lastVerify;
+}
+function doProof() {
+  const n = ledger.entries.length; if (!n) return;
+  const seq = tgt(), e = ledger.entries[seq];
+  const cp = ledger.witness.find(c => c.size > seq) || null;
+  const size = cp ? cp.size : n;
+  const tree = makeTree(ledger.entries.map(x => leafHash(x.hash)));
+  const proof = tree.proof(seq, size);
+  const live = toHex(sha256(Ledger.body(e)));                 // recompute from contents, not from the stored hash
+  const root = cp ? fromHexSafe(cp.root) : tree.root(size);
+  const ok = verifyProof(leafHash(live), proof, root);
+  const p = $('#proof'); p.hidden = false;
+  p.innerHTML = `<b>Entry #${seq}</b> · ${live.slice(0, 16)}…<br>${proof.length} sibling hashes: ${proof.map(s => s[0] + ':' + s[1].slice(0, 6)).join(' ')}<br>
+    Checked against ${cp ? 'witnessed checkpoint (' + nf(cp.size) + ' entries)' : 'live root'} <b>${toHex(root).slice(0, 16)}…</b><br>
+    <b style="color:${ok ? 'var(--ok)' : 'var(--crit)'}">${ok ? 'Proof verifies: this entry is part of the witnessed log.' : 'Proof fails: this entry is not what was witnessed.'}</b>`;
+}
+const fromHexSafe = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
+
+function tamper(kind) {
+  if (!ledger.entries.length) return;
+  if (tampered) restore(true);
+  setRunning(false);
+  ledger.checkpoint(); lastCp = ledger.entries.length;           // the witness already holds everything so far
+  const seq = tgt(), backup = JSON.parse(JSON.stringify(ledger.entries));
+  const hide = e => { e.event.op = 'svc.admin'; e.event.action = 'ALLOW'; e.event.score = 0.1; e.event.rows = 0; };
+  if (kind === 'edit') hide(ledger.entries[seq]);
+  if (kind === 'del') ledger.entries.splice(seq, 1);
+  if (kind === 're') {
+    hide(ledger.entries[seq]); let prev = seq ? ledger.entries[seq - 1].hash : '0'.repeat(64);
+    for (let i = seq; i < ledger.entries.length; i++) { const e = ledger.entries[i]; e.prev = prev; e.hash = toHex(sha256(Ledger.body(e))); prev = e.hash; }
+  }
+  ledger.rebuild(); tampered = { backup, kind, seq }; $('#t-undo').disabled = false;
+  doVerify(); lastLedgerHtml = ''; renderLedger();
+}
+function restore(quiet) {
+  if (!tampered) return;
+  ledger.entries = tampered.backup; ledger.rebuild(); tampered = null; $('#t-undo').disabled = true; $('#proof').hidden = true;
+  lastLedgerHtml = ''; if (!quiet) doVerify(); else lastVerify = { ok: true };
+}
+$('#verify').onclick = doVerify; $('#prove').onclick = doProof;
+$('#cp').onclick = () => { const c = ledger.checkpoint(); lastCp = ledger.entries.length; say('', `Checkpoint ${ledger.witness.length} signed over ${nf(c.size)} entries. Root ${c.root.slice(0, 16)}… HMAC ${c.sig.slice(0, 12)}…`); renderLedger(); };
+$('#t-edit').onclick = () => tamper('edit'); $('#t-del').onclick = () => tamper('del'); $('#t-re').onclick = () => tamper('re');
+$('#t-undo').onclick = () => restore(false);
+
+/* ---------- loop and controls ---------- */
+function tick() { for (let i = 0; i < speed; i++) world.step(true); render(); }
+function setRunning(r) {
+  running = r; $('#run').textContent = r ? 'Pause' : 'Run';
+  clearInterval(timer); if (r) timer = setInterval(tick, 250);
+}
+$('#run').onclick = () => { if (!running && tampered) restore(true); setRunning(!running); };
+$('#speed').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; speed = +b.dataset.s;
+  document.querySelectorAll('#speed button').forEach(x => x.setAttribute('aria-pressed', x === b));
+});
+$('#night').onclick = () => { const day = Math.floor(world.t / 86400); world.t = (day + 1) * 86400 + 3 * 3600 - 20; world.step(false); render(); };
+$('#reset').onclick = () => { setRunning(false); lastFeedHtml = lastLedgerHtml = ''; init(); setRunning(true); };
+$('#flagged').onchange = renderFeed;
+function thr() {
+  let t = +$('#thr').value, f = +$('#frz').value;
+  if (f <= t) { f = t + 0.05; $('#frz').value = f; }
+  engine.throttleX = t; engine.freezeX = f; $('#thrv').textContent = t.toFixed(2); $('#frzv').textContent = f.toFixed(2); render();
+}
+$('#thr').oninput = thr; $('#frz').oninput = thr;
+setInterval(() => { if (running && !tampered && ledger.entries.length < 8000) { lastVerify = ledger.verify(); renderLedger(); } }, 5000);
+
+init(); setRunning(true);
+
+</script>
